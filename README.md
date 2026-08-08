@@ -65,6 +65,20 @@ same two JARs on a pinned Folia 1.21.11 server and the checklist in
   generated-loot criterion and nearby-piglin anger are restored after successful menu opening.
   The two NMS calls are isolated and pinned to Paper 1.21.11; linkage failure
   disables the plugin during startup.
+- Player feedback stays in the actionbar: protected break/merge warnings are
+  rate-limited, loading only appears when an open takes at least 150 ms, and a
+  first personal generation gets one subtle sound/particle cue. Loot menus use
+  the unobtrusive `Loot Chest`, `Loot Barrel` and `Loot Minecart` titles.
+
+## Messages
+
+The first startup creates `plugins/OpenLootr/messages.yml`. Every player-facing
+message supports Adventure MiniMessage formatting and has a usable default; no
+configuration is required. Technical storage, codec and metadata reasons remain
+in server logs and `/openlootr inspect` instead of being exposed to players.
+
+Message changes currently take effect after a server restart. Admin command and
+inspector text is intentionally separate from this player-feedback catalog.
 
 ## Commands
 

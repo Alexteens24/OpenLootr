@@ -1,0 +1,8 @@
+# OpenLootr player-facing messages. MiniMessage formatting is supported.
+cannot-break: "<red>You cannot break this loot container."
+cannot-merge: "<red>This protected chest cannot be merged."
+loading: "<gray>Loading your personal loot..."
+unavailable: "<red>This loot container is temporarily unavailable."
+generation-cancelled: "<yellow>Loot generation was cancelled."
+loot-generated: "<green>Loot generated for you!"
+container-disappeared: "<red>This loot container is no longer available."
