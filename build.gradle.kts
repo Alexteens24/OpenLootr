@@ -1,10 +1,11 @@
 plugins {
     java
     id("xyz.jpenilla.run-paper") version "3.0.2"
+    id("io.papermc.paperweight.userdev") version "2.0.0-beta.21"
 }
 
 group = "me.alexisbinh.openlootr"
-version = "0.1.0-SNAPSHOT"
+version = "0.7.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -20,15 +21,20 @@ val paperVersion = "1.21.11-R0.1-SNAPSHOT"
 val sqliteVersion = "3.53.2.1"
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:$paperVersion")
+    paperweight.paperDevBundle(paperVersion)
     compileOnly("org.xerial:sqlite-jdbc:$sqliteVersion")
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("io.papermc.paper:paper-api:$paperVersion")
     testImplementation("org.mockbukkit.mockbukkit:mockbukkit-v1.21:4.110.0")
+    testRuntimeOnly("org.spongepowered:configurate-yaml:4.2.0")
+    testRuntimeOnly("com.mojang:datafixerupper:9.0.19")
     testRuntimeOnly("org.xerial:sqlite-jdbc:$sqliteVersion")
 }
+
+paperweight.reobfArtifactConfiguration =
+    io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
 
 val spike = sourceSets.create("spike") {
     compileClasspath += sourceSets.main.get().output + configurations.compileClasspath.get()
@@ -53,6 +59,8 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.test {
     useJUnitPlatform()
+    // Keep userdev's runtime libraries, but MockBukkit must provide the server implementation.
+    classpath = classpath.filter { it.name != "mappedServerJar.jar" }
 }
 
 tasks.processResources {

@@ -6,11 +6,12 @@ import me.alexisbinh.openlootr.container.ContainerKind;
 import me.alexisbinh.openlootr.container.IdentityStrategy;
 import org.bukkit.block.Block;
 import org.bukkit.block.Chest;
+import org.bukkit.Material;
 
 public final class SingleChestAdapter implements ContainerAdapter<Block> {
     @Override
     public boolean supports(Block candidate) {
-        if (!(candidate.getState() instanceof Chest chest)) {
+        if (candidate.getType() != Material.CHEST || !(candidate.getState() instanceof Chest chest)) {
             return false;
         }
         return chest.getBlockInventory().getSize() == chest.getInventory().getSize();

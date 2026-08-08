@@ -6,12 +6,18 @@ import me.alexisbinh.openlootr.paper.container.ContainerResolver;
 import me.alexisbinh.openlootr.instance.FirstOpenService;
 import me.alexisbinh.openlootr.instance.InstanceCache;
 import me.alexisbinh.openlootr.instance.SaveCoordinator;
+import me.alexisbinh.openlootr.paper.service.PersonalLootService;
 import me.alexisbinh.openlootr.listener.ContainerProtectionListener;
 import me.alexisbinh.openlootr.listener.PersonalLootInteractionListener;
 import me.alexisbinh.openlootr.loot.GenerationEventTracker;
 import me.alexisbinh.openlootr.loot.PaperLootGenerator;
 import me.alexisbinh.openlootr.paper.container.PaperContainerResolver;
 import me.alexisbinh.openlootr.paper.menu.PaperMenuFactory;
+import me.alexisbinh.openlootr.paper.behavior.PaperContainerBehavior;
+import me.alexisbinh.openlootr.paper.nms.VanillaParityBridge;
+import me.alexisbinh.openlootr.paper.nms.v1_21_11.Paper1211VanillaParityBridge;
+import me.alexisbinh.openlootr.paper.dialog.InspectorPresenter;
+import me.alexisbinh.openlootr.paper.dialog.PaperDialogInspector;
 import me.alexisbinh.openlootr.scheduler.PaperSchedulerFacade;
 import me.alexisbinh.openlootr.scheduler.SchedulerFacade;
 import me.alexisbinh.openlootr.storage.DbExecutor;
@@ -19,11 +25,13 @@ import me.alexisbinh.openlootr.storage.SqliteLootStorage;
 import me.alexisbinh.openlootr.storage.StorageHealth;
 import me.alexisbinh.openlootr.paper.session.SessionManager;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.Bukkit;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 public final class OpenLootrPlugin extends JavaPlugin {
+    private static final String TARGET_MINECRAFT = "1.21.11";
     private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration SESSION_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5);
 
@@ -37,6 +45,10 @@ public final class OpenLootrPlugin extends JavaPlugin {
     private PersonalLootInteractionListener interactions;
     private SessionManager sessions;
     private SaveCoordinator saves;
+    private InstanceCache cache;
+    private PersonalLootService lootService;
+    private VanillaParityBridge parityBridge;
+    private InspectorPresenter inspectorPresenter;
 
     @Override
     public void onEnable() {
@@ -47,7 +59,15 @@ public final class OpenLootrPlugin extends JavaPlugin {
         storage = new SqliteLootStorage(getDataFolder().toPath().resolve("openlootr.db"));
 
         try {
+            if (!TARGET_MINECRAFT.equals(Bukkit.getMinecraftVersion())) {
+                throw new IllegalStateException("OpenLootr " + getPluginMeta().getVersion()
+                        + " requires Minecraft " + TARGET_MINECRAFT + " exactly; found "
+                        + Bukkit.getMinecraftVersion());
+            }
             dbExecutor.run(storage::initialize).get(15, TimeUnit.SECONDS);
+            parityBridge = new Paper1211VanillaParityBridge();
+            parityBridge.verifyLinkage();
+            inspectorPresenter = new PaperDialogInspector(getSLF4JLogger());
             wireGameplay();
             runtimeState = RuntimeState.RUNNING;
             getSLF4JLogger().info("OpenLootr {} enabled on {} with SQLite schema {}",
@@ -67,7 +87,7 @@ public final class OpenLootrPlugin extends JavaPlugin {
         }
         runtimeState = RuntimeState.STOPPING;
         if (interactions != null) {
-            interactions.stopAccepting();
+            lootService.stopAccepting();
         }
         if (sessions != null) {
             try {
@@ -81,22 +101,17 @@ public final class OpenLootrPlugin extends JavaPlugin {
             }
         }
         if (saves != null) {
-            long deadline = System.nanoTime() + SESSION_SHUTDOWN_TIMEOUT.toNanos();
-            saves.flushAll();
-            while (saves.pendingCount() > 0 && System.nanoTime() < deadline) {
-                try {
-                    Thread.sleep(10L);
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-                saves.flushAll();
+            boolean drained = false;
+            try {
+                drained = saves.drain(SESSION_SHUTDOWN_TIMEOUT)
+                        .get(SESSION_SHUTDOWN_TIMEOUT.plusSeconds(1).toMillis(), TimeUnit.MILLISECONDS);
+            } catch (Exception exception) {
+                getSLF4JLogger().error("Failed while draining dirty loot instances", exception);
             }
-            if (saves.pendingCount() > 0) {
+            if (!drained) {
                 getSLF4JLogger().error("Shutdown deadline reached with {} dirty loot instances retained in memory",
                         saves.pendingCount());
             }
-            saves.stopAccepting();
         }
         if (scheduler != null) {
             // Region/entity tasks cannot all be cancelled by plugin handle. Their guarded callbacks
@@ -122,21 +137,32 @@ public final class OpenLootrPlugin extends JavaPlugin {
 
     private void wireGameplay() {
         ContainerCodec codec = new ContainerCodec();
-        InstanceCache cache = new InstanceCache();
+        cache = new InstanceCache();
         containerResolver = new PaperContainerResolver(this);
         GenerationEventTracker generationEvents = new GenerationEventTracker();
-        sessions = new SessionManager(new PaperMenuFactory(this), codec, scheduler, cache);
-        saves = new SaveCoordinator(storage, dbExecutor, scheduler, getSLF4JLogger(), sessions::degrade);
+        sessions = new SessionManager(new PaperMenuFactory(this), codec, scheduler, cache,
+                new PaperContainerBehavior(scheduler, parityBridge));
+        saves = new SaveCoordinator(storage, dbExecutor, scheduler, getSLF4JLogger(),
+                sessions::degrade, cache::evictIfCleanAndClosed);
         sessions.attachSaveCoordinator(saves);
-        interactions = new PersonalLootInteractionListener(containerResolver,
-                new FirstOpenService(storage, dbExecutor), new PaperLootGenerator(codec, generationEvents),
-                codec, cache, sessions, scheduler, getSLF4JLogger());
+        lootService = new PersonalLootService(containerResolver, new FirstOpenService(storage, dbExecutor),
+                new PaperLootGenerator(codec, generationEvents), codec, cache, sessions,
+                scheduler, getSLF4JLogger());
+        interactions = new PersonalLootInteractionListener(containerResolver, lootService);
 
         var plugins = getServer().getPluginManager();
         plugins.registerEvents(generationEvents, this);
-        plugins.registerEvents(new ContainerProtectionListener(containerResolver), this);
+        plugins.registerEvents(new ContainerProtectionListener(containerResolver, sessions), this);
         plugins.registerEvents(sessions, this);
         plugins.registerEvents(interactions, this);
+        scheduleCacheSweep();
+    }
+
+    private void scheduleCacheSweep() {
+        scheduler.executeAsyncLater(() -> {
+            cache.evictIdle();
+            scheduleCacheSweep();
+        }, Duration.ofSeconds(30));
     }
 
     public static OpenLootrPlugin instance() { return instance; }
@@ -162,4 +188,16 @@ public final class OpenLootrPlugin extends JavaPlugin {
                 ? StorageHealth.unavailable(getDataFolder().toPath().resolve("openlootr.db").toString())
                 : storage.health();
     }
+
+    public InstanceCache instanceCache() { return cache; }
+
+    public SessionManager sessions() { return sessions; }
+
+    public SaveCoordinator saves() { return saves; }
+
+    public PersonalLootService lootService() { return lootService; }
+
+    public VanillaParityBridge parityBridge() { return parityBridge; }
+
+    public InspectorPresenter inspectorPresenter() { return inspectorPresenter; }
 }

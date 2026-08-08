@@ -14,6 +14,8 @@ public final class LootInstanceState {
     private int openSessions;
     private int consecutiveFailures;
     private long firstFailureAt;
+    private long lastAccessAt = System.currentTimeMillis();
+    private String faultReason;
     private PersistenceHealth persistenceHealth = PersistenceHealth.HEALTHY;
 
     public LootInstanceState(LootInstanceRecord record) {
@@ -28,6 +30,7 @@ public final class LootInstanceState {
 
     public synchronized LootInstanceRecord replace(byte[] encoded) {
         long revision = revisions.replace(encoded);
+        touch();
         return record(new RevisionedSnapshot.Snapshot(revision, encoded));
     }
 
@@ -36,16 +39,26 @@ public final class LootInstanceState {
     }
 
     public synchronized long committedRevision() { return revisions.committedRevision(); }
+    public synchronized long currentRevision() { return revisions.currentRevision(); }
     public synchronized boolean dirty() { return revisions.dirty(); }
     public synchronized boolean degraded() { return persistenceHealth != PersistenceHealth.HEALTHY; }
     public synchronized PersistenceHealth persistenceHealth() { return persistenceHealth; }
     public synchronized int openSessions() { return openSessions; }
+    public synchronized long lastAccessAt() { return lastAccessAt; }
+    public synchronized String faultReason() { return faultReason; }
     public InstanceKey key() { return key; }
     public int containerSize() { return containerSize; }
     public int codecVersion() { return codecVersion; }
 
-    public synchronized void opened() { openSessions++; }
-    public synchronized void closed() { openSessions = Math.max(0, openSessions - 1); }
+    public synchronized void touch() { lastAccessAt = System.currentTimeMillis(); }
+    public synchronized void opened() { openSessions++; touch(); }
+    public synchronized void closed() { openSessions = Math.max(0, openSessions - 1); touch(); }
+
+    public synchronized void corrupt(String reason) {
+        persistenceHealth = PersistenceHealth.CORRUPT;
+        faultReason = Objects.requireNonNull(reason, "reason");
+        touch();
+    }
 
     public synchronized boolean committed(long revision) {
         revisions.markCommitted(revision);
@@ -53,6 +66,7 @@ public final class LootInstanceState {
         firstFailureAt = 0;
         if (persistenceHealth == PersistenceHealth.DEGRADED) {
             persistenceHealth = PersistenceHealth.HEALTHY;
+            faultReason = null;
             return true;
         }
         return false;
@@ -88,6 +102,8 @@ public final class LootInstanceState {
             throw new IllegalArgumentException("degraded target must be DEGRADED or QUARANTINED");
         }
         persistenceHealth = target;
+        faultReason = target == PersistenceHealth.QUARANTINED
+                ? "database revision conflict" : "database writes repeatedly failed";
     }
 
     private LootInstanceRecord record(RevisionedSnapshot.Snapshot snapshot) {

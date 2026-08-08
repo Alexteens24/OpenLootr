@@ -63,6 +63,9 @@ public final class PaperSchedulerFacade implements SchedulerFacade {
         return folia;
     }
 
+    @Override
+    public boolean accepting() { return accepting.get(); }
+
     private static boolean detectFolia() {
         try {
             Class.forName("io.papermc.paper.threadedregions.RegionizedServer");

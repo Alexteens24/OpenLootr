@@ -17,26 +17,26 @@ import java.util.function.Function;
 public final class FirstOpenService {
     private final LootStorage storage;
     private final DbExecutor dbExecutor;
-    private final InFlightRegistry<InstanceKey, LootInstanceRecord> inFlight = new InFlightRegistry<>();
+    private final InFlightRegistry<InstanceKey, EstablishedInstance> inFlight = new InFlightRegistry<>();
 
     public FirstOpenService(LootStorage storage, DbExecutor dbExecutor) {
         this.storage = Objects.requireNonNull(storage, "storage");
         this.dbExecutor = Objects.requireNonNull(dbExecutor, "dbExecutor");
     }
 
-    public CompletableFuture<LootInstanceRecord> establish(
+    public CompletableFuture<EstablishedInstance> establish(
             InstanceKey key,
             Function<InstanceKey, CompletableFuture<LootInstanceRecord>> generationDispatcher
     ) {
         Objects.requireNonNull(generationDispatcher, "generationDispatcher");
         return inFlight.runOrJoin(key, () -> dbExecutor.supply(() -> storage.find(key))
                 .thenCompose(found -> found
-                        .map(CompletableFuture::completedFuture)
+                        .map(record -> CompletableFuture.completedFuture(new EstablishedInstance(record, false)))
                         .orElseGet(() -> dispatchGeneration(key, generationDispatcher)))
         );
     }
 
-    private CompletableFuture<LootInstanceRecord> dispatchGeneration(
+    private CompletableFuture<EstablishedInstance> dispatchGeneration(
             InstanceKey key,
             Function<InstanceKey, CompletableFuture<LootInstanceRecord>> generationDispatcher
     ) {
@@ -56,17 +56,17 @@ public final class FirstOpenService {
         });
     }
 
-    private CompletableFuture<LootInstanceRecord> persistOrRecover(LootInstanceRecord generated) {
+    private CompletableFuture<EstablishedInstance> persistOrRecover(LootInstanceRecord generated) {
         return dbExecutor.supply(() -> {
             try {
                 if (storage.insertFirst(generated)) {
-                    return generated;
+                    return new EstablishedInstance(generated, true);
                 }
             } catch (StorageException ambiguousFailure) {
-                return storage.find(generated.key()).orElseThrow(() -> ambiguousFailure);
+                return new EstablishedInstance(storage.find(generated.key()).orElseThrow(() -> ambiguousFailure), false);
             }
-            return storage.find(generated.key()).orElseThrow(() ->
-                    new NoSuchElementException("insert lost its uniqueness race but canonical row is absent"));
+            return new EstablishedInstance(storage.find(generated.key()).orElseThrow(() ->
+                    new NoSuchElementException("insert lost its uniqueness race but canonical row is absent")), false);
         });
     }
 

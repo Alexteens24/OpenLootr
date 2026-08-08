@@ -21,4 +21,6 @@ public interface SchedulerFacade {
     void stopAccepting();
 
     boolean isFolia();
+
+    default boolean accepting() { return true; }
 }

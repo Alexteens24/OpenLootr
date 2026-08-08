@@ -9,22 +9,39 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityRemoveEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.vehicle.VehicleDestroyEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.entity.Entity;
+import me.alexisbinh.openlootr.paper.session.SessionManager;
 
 import java.util.Objects;
 
 public final class ContainerProtectionListener implements Listener {
     private final ContainerResolver resolver;
+    private final SessionManager sessions;
 
-    public ContainerProtectionListener(ContainerResolver resolver) {
+    public ContainerProtectionListener(ContainerResolver resolver, SessionManager sessions) {
         this.resolver = Objects.requireNonNull(resolver, "resolver");
+        this.sessions = Objects.requireNonNull(sessions, "sessions");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
         if (protectedContainer(event.getBlock())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlace(BlockPlaceEvent event) {
+        ContainerResolution resolution = resolver.resolve(event.getBlockPlaced());
+        if ((resolution instanceof ContainerResolution.Managed managed
+                && managed.descriptor().kind() == me.alexisbinh.openlootr.container.ContainerKind.DOUBLE_CHEST)
+                || resolution instanceof ContainerResolution.Broken) {
             event.setCancelled(true);
         }
     }
@@ -46,9 +63,38 @@ public final class ContainerProtectionListener implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onVehicleDestroy(VehicleDestroyEvent event) {
+        if (protectedEntity(event.getVehicle())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntityRemove(EntityRemoveEvent event) {
+        if (event.getCause() == EntityRemoveEvent.Cause.UNLOAD) {
+            return;
+        }
+        ContainerResolution resolution = resolver.resolve(event.getEntity());
+        if (resolution instanceof ContainerResolution.Managed managed) {
+            sessions.closeContainer(managed.descriptor().containerId().orElseThrow(),
+                    "The physical loot container disappeared.");
+        }
+    }
+
     private boolean protectedInventory(Inventory inventory) {
+        if (inventory.getHolder() instanceof Entity entity && protectedEntity(entity)) {
+            return true;
+        }
         Location location = inventory.getLocation();
         return location != null && protectedContainer(location.getBlock());
+    }
+
+    private boolean protectedEntity(Entity entity) {
+        ContainerResolution resolution = resolver.resolve(entity);
+        return resolution instanceof ContainerResolution.Candidate
+                || resolution instanceof ContainerResolution.Managed
+                || resolution instanceof ContainerResolution.Broken;
     }
 
     private boolean protectedContainer(Block block) {

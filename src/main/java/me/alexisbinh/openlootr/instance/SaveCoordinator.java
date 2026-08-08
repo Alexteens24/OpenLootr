@@ -10,8 +10,11 @@ import java.util.Objects;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 /** Coalesces each key to its latest encoded snapshot and persists monotonically with CAS. */
 public final class SaveCoordinator {
@@ -24,22 +27,29 @@ public final class SaveCoordinator {
     private final SchedulerFacade scheduler;
     private final Logger logger;
     private final BiFunction<LootInstanceState, PersistenceHealth, CompletableFuture<Void>> degradedHandler;
+    private final Consumer<LootInstanceState> cleanHandler;
     private final Set<InstanceKey> scheduled = ConcurrentHashMap.newKeySet();
     private final Set<InstanceKey> writing = ConcurrentHashMap.newKeySet();
     private final Map<InstanceKey, LootInstanceState> dirtyStates = new ConcurrentHashMap<>();
+    private final AtomicBoolean acceptingMutations = new AtomicBoolean(true);
     private volatile boolean stopping;
 
     public SaveCoordinator(LootStorage storage, DbExecutor dbExecutor, SchedulerFacade scheduler,
                            Logger logger,
-                           BiFunction<LootInstanceState, PersistenceHealth, CompletableFuture<Void>> degradedHandler) {
+                           BiFunction<LootInstanceState, PersistenceHealth, CompletableFuture<Void>> degradedHandler,
+                           Consumer<LootInstanceState> cleanHandler) {
         this.storage = Objects.requireNonNull(storage, "storage");
         this.dbExecutor = Objects.requireNonNull(dbExecutor, "dbExecutor");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.logger = Objects.requireNonNull(logger, "logger");
         this.degradedHandler = Objects.requireNonNull(degradedHandler, "degradedHandler");
+        this.cleanHandler = Objects.requireNonNull(cleanHandler, "cleanHandler");
     }
 
     public void dirty(LootInstanceState state) {
+        if (!acceptingMutations.get()) {
+            return;
+        }
         dirtyStates.put(state.key(), state);
         schedule(state, DEBOUNCE);
     }
@@ -80,6 +90,7 @@ public final class SaveCoordinator {
                     schedule(state, Duration.ZERO);
                 } else {
                     dirtyStates.remove(state.key(), state);
+                    cleanHandler.accept(state);
                 }
                 return;
             }
@@ -134,5 +145,35 @@ public final class SaveCoordinator {
 
     public void flushAll() { dirtyStates.values().forEach(this::flush); }
 
+    /** Stops new mutations and completes once every known latest revision is committed or the deadline expires. */
+    public CompletableFuture<Boolean> drain(Duration timeout) {
+        Objects.requireNonNull(timeout, "timeout");
+        acceptingMutations.set(false);
+        long deadline = System.nanoTime() + timeout.toNanos();
+        CompletableFuture<Boolean> result = new CompletableFuture<>();
+        flushAll();
+        checkDrained(deadline, result);
+        return result.whenComplete((ignored, failure) -> stopping = true);
+    }
+
+    private void checkDrained(long deadline, CompletableFuture<Boolean> result) {
+        dirtyStates.entrySet().removeIf(entry -> !entry.getValue().dirty());
+        if (dirtyStates.isEmpty() && writing.isEmpty()) {
+            result.complete(true);
+            return;
+        }
+        if (System.nanoTime() >= deadline) {
+            result.complete(false);
+            return;
+        }
+        flushAll();
+        CompletableFuture.delayedExecutor(10, TimeUnit.MILLISECONDS)
+                .execute(() -> checkDrained(deadline, result));
+    }
+
     public int pendingCount() { return dirtyStates.size(); }
+
+    public int writingCount() { return writing.size(); }
+
+    public boolean acceptingMutations() { return acceptingMutations.get(); }
 }
