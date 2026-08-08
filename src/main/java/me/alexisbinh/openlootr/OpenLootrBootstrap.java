@@ -5,6 +5,7 @@ import io.papermc.paper.plugin.bootstrap.BootstrapContext;
 import io.papermc.paper.plugin.bootstrap.PluginBootstrap;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import me.alexisbinh.openlootr.command.InfoCommand;
+import me.alexisbinh.openlootr.command.InspectCommand;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -21,6 +22,10 @@ public final class OpenLootrBootstrap implements PluginBootstrap {
                                     .requires(source -> source.getSender()
                                             .hasPermission("openlootr.command.info"))
                                     .executes(command -> InfoCommand.execute(command.getSource())))
+                            .then(Commands.literal("inspect")
+                                    .requires(source -> source.getSender()
+                                            .hasPermission("openlootr.command.inspect"))
+                                    .executes(command -> InspectCommand.execute(command.getSource())))
                             .build(),
                     "OpenLootr administration",
                     List.of("ol")

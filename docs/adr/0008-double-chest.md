@@ -1,7 +1,7 @@
 # ADR 0008: Double-chest truth table
 
-Status: Pending live evidence
+Status: Accepted conservative 0.1 behavior
 
-Only valid generated pairs with verified canonical metadata may be supported.
-Dynamic managed merges are rejected, inconsistent halves fail closed, and
-personal data is never guessed or merged automatically.
+Completely unmanaged double chests remain vanilla. If either visible half has
+OpenLootr metadata, resolution fails closed. Personal double chests, dynamic
+managed merges and automatic data merging are not supported in 0.1.

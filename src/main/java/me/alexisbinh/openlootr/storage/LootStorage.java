@@ -14,6 +14,8 @@ public interface LootStorage extends AutoCloseable {
 
     boolean updateCas(LootInstanceRecord record, long expectedRevision);
 
+    long countByContainer(java.util.UUID containerId);
+
     StorageHealth health();
 
     @Override

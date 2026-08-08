@@ -58,6 +58,10 @@ public final class SqliteLootStorage implements LootStorage {
             WHERE container_uuid = ? AND player_uuid = ? AND revision = ?
             """;
 
+    private static final String COUNT_BY_CONTAINER = """
+            SELECT COUNT(*) FROM loot_instances WHERE container_uuid = ?
+            """;
+
     private final Path databasePath;
     private Connection connection;
     private volatile StorageHealth health;
@@ -181,6 +185,22 @@ public final class SqliteLootStorage implements LootStorage {
             return statement.executeUpdate() == 1;
         } catch (SQLException exception) {
             throw new StorageException("Failed CAS update for instance " + record.key(), exception);
+        }
+    }
+
+    @Override
+    public long countByContainer(java.util.UUID containerId) {
+        requireInitialized();
+        try (PreparedStatement statement = connection.prepareStatement(COUNT_BY_CONTAINER)) {
+            statement.setString(1, canonical(containerId));
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new StorageException("Container instance count returned no row");
+                }
+                return result.getLong(1);
+            }
+        } catch (SQLException exception) {
+            throw new StorageException("Failed to count instances for container " + containerId, exception);
         }
     }
 

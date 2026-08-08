@@ -42,6 +42,8 @@ class SqliteLootStorageTest {
         LootInstanceRecord revision0 = record(key, 0, new byte[]{0});
         assertTrue(storage.insertFirst(revision0));
         assertFalse(storage.insertFirst(revision0));
+        assertEquals(1, storage.countByContainer(key.containerId()));
+        assertEquals(0, storage.countByContainer(UUID.randomUUID()));
 
         LootInstanceRecord revision17 = new LootInstanceRecord(
                 key, 27, 1, 17, 999L, new byte[]{17}, 1_700_000_000_000L, 1_700_000_000_017L);

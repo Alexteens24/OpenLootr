@@ -11,3 +11,6 @@ permissions:
   openlootr.command.info:
     description: View OpenLootr runtime and persistence health
     default: op
+  openlootr.command.inspect:
+    description: Inspect a target loot container and its persisted state
+    default: op
