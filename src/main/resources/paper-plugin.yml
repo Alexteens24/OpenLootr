@@ -1,0 +1,13 @@
+name: OpenLootr
+version: '${version}'
+main: me.alexisbinh.openlootr.OpenLootrPlugin
+bootstrapper: me.alexisbinh.openlootr.OpenLootrBootstrap
+api-version: '1.21.11'
+folia-supported: true
+author: AlexisBinh
+description: Paper-native persistent personal loot for structure containers
+
+permissions:
+  openlootr.command.info:
+    description: View OpenLootr runtime and persistence health
+    default: op

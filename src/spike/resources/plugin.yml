@@ -1,0 +1,15 @@
+name: OpenLootrSpikes
+version: '${version}'
+main: me.alexisbinh.openlootr.spike.OpenLootrSpikesPlugin
+api-version: '1.21.11'
+folia-supported: true
+description: Development-only Phase-0 probe harness for OpenLootr
+depend: [OpenLootr]
+commands:
+  olspike:
+    description: Run or inspect OpenLootr Phase-0 probes
+    usage: /olspike <status|inspect|mark|codec>
+    permission: openlootr.spike
+permissions:
+  openlootr.spike:
+    default: op
