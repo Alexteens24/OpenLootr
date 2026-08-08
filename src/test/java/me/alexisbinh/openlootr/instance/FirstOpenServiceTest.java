@@ -90,6 +90,9 @@ class FirstOpenServiceTest {
             return inserted;
         }
         @Override public boolean updateCas(LootInstanceRecord record, long expectedRevision) { return false; }
+        @Override public long countByContainer(UUID containerId) {
+            return rows.keySet().stream().filter(key -> key.containerId().equals(containerId)).count();
+        }
         @Override public StorageHealth health() { return StorageHealth.unavailable("memory"); }
         @Override public void close() { }
     }

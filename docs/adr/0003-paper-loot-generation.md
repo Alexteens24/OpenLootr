@@ -1,7 +1,12 @@
 # ADR 0003: Paper loot-generation semantics
 
-Status: Pending live evidence
+Status: Provisional implementation; pending live gameplay evidence
 
-Measure `fillInventory`, `LootGenerateEvent` cancellation, holder, `isPlugin`,
-thread, luck, datapack behavior and seeded repeatability. Select the generator
-implementation only from these results.
+The alpha uses a scratch inventory and `LootTable.fillInventory` with a random
+per-player seed persisted in the first-open row. A MONITOR listener scoped to
+the synchronous generation observes cancellation; cancellation aborts and no
+row is inserted. The context carries captured luck but deliberately no live
+player object across ownership boundaries.
+
+Live probes must still verify `isPlugin`, cancellation ordering, holder/entity,
+datapack behavior and seeded repeatability before release.

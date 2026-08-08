@@ -1,7 +1,8 @@
 # ADR 0010: Menu implementation
 
-Status: Pending live evidence
+Status: Provisional adapter selected; live mutation matrix pending
 
-Use Menu Type only if session identity and all required click/drag/shift/number
-mutations are observable and reliable. Otherwise use a stable custom inventory
-behind the same `MenuFactory` boundary.
+The alpha tries Paper Menu Type first and catches runtime failure to use a stable
+custom inventory behind `MenuFactory`. Sessions compare the exact top inventory
+object, never its title. Click and drag mutations are sampled on the player's
+next owned tick; close, quit and kick request immediate persistence.
