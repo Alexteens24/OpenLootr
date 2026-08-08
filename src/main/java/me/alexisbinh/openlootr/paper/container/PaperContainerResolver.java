@@ -97,7 +97,7 @@ public final class PaperContainerResolver implements ContainerResolver {
         pdc.set(containerIdKey, PersistentDataType.BYTE_ARRAY, uuidBytes(id));
         pdc.set(lootTableKey, PersistentDataType.STRING, live.descriptor().sourceLootTable().toString());
         pdc.set(sourceLootSeedKey, PersistentDataType.LONG, live.descriptor().sourceLootSeed());
-        if (!state.update(true, false)) {
+        if (!state.update(false, false)) {
             return new ContainerResolution.Broken("failed to persist OpenLootr identity");
         }
         ContainerResolution verified = resolve(block);

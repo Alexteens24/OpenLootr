@@ -7,10 +7,11 @@ import org.slf4j.Logger;
 
 import java.time.Duration;
 import java.util.Objects;
-import java.util.Set;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
+import java.util.function.BiFunction;
 
 /** Coalesces each key to its latest encoded snapshot and persists monotonically with CAS. */
 public final class SaveCoordinator {
@@ -22,14 +23,15 @@ public final class SaveCoordinator {
     private final DbExecutor dbExecutor;
     private final SchedulerFacade scheduler;
     private final Logger logger;
-    private final Consumer<LootInstanceState> degradedHandler;
+    private final BiFunction<LootInstanceState, PersistenceHealth, CompletableFuture<Void>> degradedHandler;
     private final Set<InstanceKey> scheduled = ConcurrentHashMap.newKeySet();
     private final Set<InstanceKey> writing = ConcurrentHashMap.newKeySet();
     private final Map<InstanceKey, LootInstanceState> dirtyStates = new ConcurrentHashMap<>();
     private volatile boolean stopping;
 
     public SaveCoordinator(LootStorage storage, DbExecutor dbExecutor, SchedulerFacade scheduler,
-                           Logger logger, Consumer<LootInstanceState> degradedHandler) {
+                           Logger logger,
+                           BiFunction<LootInstanceState, PersistenceHealth, CompletableFuture<Void>> degradedHandler) {
         this.storage = Objects.requireNonNull(storage, "storage");
         this.dbExecutor = Objects.requireNonNull(dbExecutor, "dbExecutor");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
@@ -70,7 +72,10 @@ public final class SaveCoordinator {
         dbExecutor.supply(() -> storage.updateCas(snapshot, expected)).whenComplete((updated, failure) -> {
             writing.remove(state.key());
             if (failure == null && Boolean.TRUE.equals(updated)) {
-                state.committed(snapshot.revision());
+                boolean recovered = state.committed(snapshot.revision());
+                if (recovered) {
+                    logger.info("Persistence recovered for {} at revision {}", state.key(), snapshot.revision());
+                }
                 if (state.dirty()) {
                     schedule(state, Duration.ZERO);
                 } else {
@@ -80,19 +85,47 @@ public final class SaveCoordinator {
             }
             if (failure == null) {
                 logger.error("CAS conflict for {}; refusing to merge or overwrite persisted state", state.key());
-                state.markDegraded();
-                degradedHandler.accept(state);
+                transitionOutOfHealthy(state, PersistenceHealth.QUARANTINED);
                 return;
             } else {
                 logger.error("Failed to persist {} revision {}", state.key(), snapshot.revision(), failure);
             }
             boolean degraded = state.failed();
             if (degraded) {
-                degradedHandler.accept(state);
-                schedule(state, DEGRADED_RETRY);
+                transitionOutOfHealthy(state, PersistenceHealth.DEGRADED);
             } else {
                 int index = Math.min(Math.max(0, state.consecutiveFailures() - 1), RETRY_MILLIS.length - 1);
                 schedule(state, Duration.ofMillis(RETRY_MILLIS[index]));
+            }
+        });
+    }
+
+    private void transitionOutOfHealthy(LootInstanceState state, PersistenceHealth target) {
+        if (!state.beginDegrading(target)) {
+            if (target == PersistenceHealth.DEGRADED
+                    && state.persistenceHealth() == PersistenceHealth.DEGRADED) {
+                schedule(state, DEGRADED_RETRY);
+            }
+            return;
+        }
+        final CompletableFuture<Void> transition;
+        try {
+            transition = Objects.requireNonNull(degradedHandler.apply(state, target),
+                    "degraded handler returned null");
+        } catch (Throwable failure) {
+            state.finishDegrading(target);
+            logger.error("Failed to dispatch degraded transition for {}", state.key(), failure);
+            if (target == PersistenceHealth.DEGRADED) {
+                schedule(state, DEGRADED_RETRY);
+            }
+            return;
+        }
+        transition.whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                logger.error("Failed to capture active session while degrading {}", state.key(), failure);
+            }
+            if (target == PersistenceHealth.DEGRADED) {
+                schedule(state, DEGRADED_RETRY);
             }
         });
     }

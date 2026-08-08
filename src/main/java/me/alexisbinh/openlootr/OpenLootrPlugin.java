@@ -98,6 +98,11 @@ public final class OpenLootrPlugin extends JavaPlugin {
             }
             saves.stopAccepting();
         }
+        if (scheduler != null) {
+            // Region/entity tasks cannot all be cancelled by plugin handle. Their guarded callbacks
+            // must become no-ops before SQLite begins closing.
+            scheduler.stopAccepting();
+        }
         if (dbExecutor != null && storage != null) {
             try {
                 dbExecutor.run(storage::close).get(SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);

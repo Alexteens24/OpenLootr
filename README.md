@@ -38,6 +38,9 @@ same two JARs on a pinned Folia 1.21.11 server and the checklist in
   version, random UUID, original loot-table key and original seed in tile PDC.
 - Personal contents are committed before first access. Later mutations use
   monotonic CAS revisions, 250 ms coalescing, and close/quit/shutdown flushes.
+- A degraded transition captures the exact open top inventory on its entity
+  scheduler before detaching the session. Transient failures may recover after
+  a successful retry; CAS conflicts remain quarantined until reload/repair.
 - Decode/size failures, partial PDC, managed double chests and CAS conflicts fail
   closed; OpenLootr never regenerates or overwrites those rows.
 

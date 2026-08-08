@@ -3,6 +3,7 @@ package me.alexisbinh.openlootr.paper.session;
 import me.alexisbinh.openlootr.codec.ContainerCodec;
 import me.alexisbinh.openlootr.instance.InstanceCache;
 import me.alexisbinh.openlootr.instance.LootInstanceState;
+import me.alexisbinh.openlootr.instance.PersistenceHealth;
 import me.alexisbinh.openlootr.instance.SaveCoordinator;
 import me.alexisbinh.openlootr.paper.menu.MenuFactory;
 import me.alexisbinh.openlootr.scheduler.SchedulerFacade;
@@ -119,12 +120,19 @@ public final class SessionManager implements Listener {
         }, () -> sessions.remove(player.getUniqueId(), expected));
     }
 
-    private void snapshot(LootSession session, boolean immediate) {
+    private boolean captureCurrentContents(LootSession session) {
         byte[] encoded = codec.encode(session.topInventory().getContents());
         if (Arrays.equals(encoded, session.instance().latestRecord().inventoryData())) {
-            return;
+            return false;
         }
         session.instance().replace(encoded);
+        return true;
+    }
+
+    private void snapshot(LootSession session, boolean immediate) {
+        if (!captureCurrentContents(session)) {
+            return;
+        }
         if (immediate) {
             requireSaves().flush(session.instance());
         } else {
@@ -132,19 +140,58 @@ public final class SessionManager implements Listener {
         }
     }
 
-    public void degrade(LootInstanceState state) {
-        sessions.values().stream().filter(session -> session.instance() == state).forEach(session -> {
-            Player player = Bukkit.getPlayer(session.playerId());
-            if (player != null) {
-                scheduler.executeFor(player, () -> {
-                    LootSession removed = sessions.remove(session.playerId());
-                    if (removed == session) {
-                        player.closeInventory();
-                        player.sendMessage(Component.text("[OpenLootr] Inventory closed: persistence is degraded."));
-                    }
-                }, () -> sessions.remove(session.playerId(), session));
+    public CompletableFuture<Void> degrade(LootInstanceState state, PersistenceHealth target) {
+        if (target != PersistenceHealth.DEGRADED && target != PersistenceHealth.QUARANTINED) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("invalid degraded transition target: " + target));
+        }
+        LootSession session = sessions.values().stream()
+                .filter(candidate -> candidate.instance() == state)
+                .findFirst().orElse(null);
+        if (session == null) {
+            state.finishDegrading(target);
+            return CompletableFuture.completedFuture(null);
+        }
+        CompletableFuture<Void> completed = new CompletableFuture<>();
+        Player player = Bukkit.getPlayer(session.playerId());
+        if (player == null) {
+            state.finishDegrading(target);
+            if (sessions.remove(session.playerId(), session)) {
+                state.closed();
             }
+            completed.complete(null);
+            return completed;
+        }
+        scheduler.executeFor(player, () -> {
+            try {
+                if (sessions.get(session.playerId()) == session) {
+                    captureCurrentContents(session);
+                    state.finishDegrading(target);
+                    sessions.remove(session.playerId(), session);
+                    state.closed();
+                    player.closeInventory();
+                    player.sendMessage(Component.text(target == PersistenceHealth.QUARANTINED
+                            ? "[OpenLootr] Inventory quarantined after a persistence conflict."
+                            : "[OpenLootr] Inventory closed while persistence recovers."));
+                } else {
+                    state.finishDegrading(target);
+                }
+                completed.complete(null);
+            } catch (Throwable failure) {
+                state.finishDegrading(target);
+                if (sessions.remove(session.playerId(), session)) {
+                    state.closed();
+                }
+                completed.completeExceptionally(failure);
+            }
+        }, () -> {
+            state.finishDegrading(target);
+            if (sessions.remove(session.playerId(), session)) {
+                state.closed();
+            }
+            completed.complete(null);
         });
+        return completed;
     }
 
     public CompletableFuture<Void> snapshotAll() {

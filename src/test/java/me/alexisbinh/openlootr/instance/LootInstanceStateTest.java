@@ -37,6 +37,38 @@ class LootInstanceStateTest {
             assertFalse(state.failed());
         }
         assertTrue(state.failed());
+        assertTrue(state.beginDegrading(PersistenceHealth.DEGRADED));
+        state.finishDegrading(PersistenceHealth.DEGRADED);
         assertTrue(state.degraded());
+    }
+
+    @Test
+    void transientDegradedStateRecoversButQuarantineDoesNot() {
+        InstanceKey key = new InstanceKey(UUID.randomUUID(), UUID.randomUUID());
+        LootInstanceState recoverable = new LootInstanceState(new LootInstanceRecord(
+                key, 27, 1, 0, 7L, new byte[]{0}, 1L, 1L));
+        LootInstanceRecord revision1 = recoverable.replace(new byte[]{1});
+        assertTrue(recoverable.beginDegrading(PersistenceHealth.DEGRADED));
+        recoverable.finishDegrading(PersistenceHealth.DEGRADED);
+        assertTrue(recoverable.committed(revision1.revision()));
+        assertEquals(PersistenceHealth.HEALTHY, recoverable.persistenceHealth());
+
+        LootInstanceState quarantined = new LootInstanceState(new LootInstanceRecord(
+                new InstanceKey(UUID.randomUUID(), UUID.randomUUID()),
+                27, 1, 0, 7L, new byte[]{0}, 1L, 1L));
+        LootInstanceRecord quarantinedRevision = quarantined.replace(new byte[]{1});
+        assertTrue(quarantined.beginDegrading(PersistenceHealth.QUARANTINED));
+        quarantined.finishDegrading(PersistenceHealth.QUARANTINED);
+        assertFalse(quarantined.committed(quarantinedRevision.revision()));
+        assertEquals(PersistenceHealth.QUARANTINED, quarantined.persistenceHealth());
+
+        LootInstanceState escalation = new LootInstanceState(new LootInstanceRecord(
+                new InstanceKey(UUID.randomUUID(), UUID.randomUUID()),
+                27, 1, 0, 7L, new byte[]{0}, 1L, 1L));
+        assertTrue(escalation.beginDegrading(PersistenceHealth.DEGRADED));
+        escalation.finishDegrading(PersistenceHealth.DEGRADED);
+        assertTrue(escalation.beginDegrading(PersistenceHealth.QUARANTINED));
+        escalation.finishDegrading(PersistenceHealth.QUARANTINED);
+        assertEquals(PersistenceHealth.QUARANTINED, escalation.persistenceHealth());
     }
 }

@@ -18,5 +18,7 @@ public interface SchedulerFacade {
 
     void cancelPluginTasks();
 
+    void stopAccepting();
+
     boolean isFolia();
 }
