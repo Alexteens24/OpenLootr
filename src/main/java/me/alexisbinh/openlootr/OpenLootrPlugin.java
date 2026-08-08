@@ -14,8 +14,9 @@ import me.alexisbinh.openlootr.loot.PaperLootGenerator;
 import me.alexisbinh.openlootr.paper.container.PaperContainerResolver;
 import me.alexisbinh.openlootr.paper.menu.PaperMenuFactory;
 import me.alexisbinh.openlootr.paper.behavior.PaperContainerBehavior;
+import me.alexisbinh.openlootr.paper.nms.SupportedMinecraftVersions;
 import me.alexisbinh.openlootr.paper.nms.VanillaParityBridge;
-import me.alexisbinh.openlootr.paper.nms.v1_21_11.Paper1211VanillaParityBridge;
+import me.alexisbinh.openlootr.paper.nms.VanillaParityLinker;
 import me.alexisbinh.openlootr.paper.dialog.InspectorPresenter;
 import me.alexisbinh.openlootr.paper.dialog.PaperDialogInspector;
 import me.alexisbinh.openlootr.paper.feedback.PlayerFeedback;
@@ -33,7 +34,6 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 public final class OpenLootrPlugin extends JavaPlugin {
-    private static final String TARGET_MINECRAFT = "1.21.11";
     private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration SESSION_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5);
 
@@ -62,14 +62,10 @@ public final class OpenLootrPlugin extends JavaPlugin {
         storage = new SqliteLootStorage(getDataFolder().toPath().resolve("openlootr.db"));
 
         try {
-            if (!TARGET_MINECRAFT.equals(Bukkit.getMinecraftVersion())) {
-                throw new IllegalStateException("OpenLootr " + getPluginMeta().getVersion()
-                        + " requires Minecraft " + TARGET_MINECRAFT + " exactly; found "
-                        + Bukkit.getMinecraftVersion());
-            }
+            String minecraftVersion = Bukkit.getMinecraftVersion();
+            SupportedMinecraftVersions.requireSupported(minecraftVersion);
+            parityBridge = VanillaParityLinker.link(minecraftVersion);
             dbExecutor.run(storage::initialize).get(15, TimeUnit.SECONDS);
-            parityBridge = new Paper1211VanillaParityBridge();
-            parityBridge.verifyLinkage();
             inspectorPresenter = new PaperDialogInspector(getSLF4JLogger());
             wireGameplay();
             runtimeState = RuntimeState.RUNNING;

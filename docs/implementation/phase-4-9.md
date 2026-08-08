@@ -14,7 +14,7 @@ with release version `0.7.0-SNAPSHOT`.
 - storage minecart resolution, interaction and physical protection;
 - terminal entity-retirement paths and owner-time minecart origin capture;
 - shared block/entity first-open service and explicit scheduler revalidation;
-- reference-counted lids, statistics and version-isolated vanilla parity bridge;
+- reference-counted lids, statistics and a runtime-linked vanilla parity bridge;
 - multi-source `LootGenerateEvent` cancellation semantics and documented context
   limitations;
 - Dialog-backed inspect, read-only debug metrics, and nonce/fingerprint repair.

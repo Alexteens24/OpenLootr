@@ -8,8 +8,9 @@ alpha, not a stable release.
 
 ## Target
 
-- Paper/Folia 1.21.11
-- Java 21 bytecode
+- Paper `1.21.11`, `26.1.2`, and `26.2` (exact runtime allowlist)
+- Folia gameplay validation currently remains pinned to `1.21.11`
+- Java 21 bytecode; Paper 26.1+ itself requires a Java 25 runtime
 - SQLite supplied by the Paper runtime
 - GPL-3.0
 
@@ -63,8 +64,9 @@ same two JARs on a pinned Folia 1.21.11 server and the checklist in
   refresh/network storage.
 - Physical lid animation is reference-counted. Chest/barrel statistics,
   generated-loot criterion and nearby-piglin anger are restored after successful menu opening.
-  The two NMS calls are isolated and pinned to Paper 1.21.11; linkage failure
-  disables the plugin during startup.
+  The two NMS calls live behind one MethodHandle-based compatibility island;
+  every class, field and exact method signature is linked before SQLite or
+  gameplay starts, and linkage failure disables the plugin immediately.
 - Player feedback stays in the actionbar: protected break/merge warnings are
   rate-limited, loading only appears when an open takes at least 150 ms, and a
   first personal generation gets one subtle sound/particle cue. Loot menus use
@@ -93,6 +95,17 @@ Repair never merges conflicting identities, edits personal rows, clears metadata
 or regenerates loot.
 
 ## Compatibility and validation
+
+One source tree produces one production JAR for all three supported Paper
+versions. `SupportedMinecraftVersions` owns only the allowlist; the startup
+`VanillaParityLinker` selects an immutable symbol layout and returns a linked
+`VanillaParityBridge`. Minecraft `1.21.11` and `26.1.2` share one layout. Version
+`26.2` uses a second layout because Mojang moved advancement trigger classes;
+gameplay code contains no version checks.
+
+CI builds `OpenLootr.jar` once, uploads it once, then runs that exact artifact on
+a Paper matrix for `1.21.11`, `26.1.2`, and `26.2`. The project compiles only
+against the oldest supported Paper API and contains no compile-time NMS imports.
 
 Generation uses `LootTable.fillInventory` with an immutable origin and captured
 luck. `LootGenerateEvent` modifiers and cancellation are observed once per
