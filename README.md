@@ -61,8 +61,8 @@ same two JARs on a pinned Folia 1.21.11 server and the checklist in
 - Deliberately unsupported: trapped chests, chest boats/rafts, shulker boxes,
   hopper/dropper/dispenser/crafter menus, comparator-personal signals and timed
   refresh/network storage.
-- Physical lid animation is reference-counted. Statistics, generated-loot
-  criterion and nearby-piglin anger are restored after successful menu opening.
+- Physical lid animation is reference-counted. Chest/barrel statistics,
+  generated-loot criterion and nearby-piglin anger are restored after successful menu opening.
   The two NMS calls are isolated and pinned to Paper 1.21.11; linkage failure
   disables the plugin during startup.
 
@@ -87,6 +87,9 @@ first open before a row is inserted. Conditions requiring `THIS_ENTITY` are not
 guaranteed because the compatibility-safe v1 context intentionally does not carry
 a live player across scheduler boundaries. See
 [`docs/compatibility.md`](docs/compatibility.md).
+
+Storage-minecart open-statistic parity remains a Phase 10 live-evidence gate; the
+plugin deliberately does not increment `CHEST_OPENED` for minecarts by assumption.
 
 Automated tests do not replace live server evidence. Paper/Folia animation,
 sound/game-event duplication, datapack and third-party event fixtures, process-kill

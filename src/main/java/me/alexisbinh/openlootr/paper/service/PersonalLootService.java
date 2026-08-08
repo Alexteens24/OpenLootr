@@ -65,22 +65,23 @@ public final class PersonalLootService {
 
     public int inFlightCount() { return firstOpen.inFlightCount(); }
 
+    public int pendingAttemptCount() { return attempts.size(); }
+
     public void openBlock(Player player, Location blockLocation, ContainerDescriptor descriptor) {
         Location origin = blockLocation.clone().add(0.5, 0.5, 0.5);
-        beginOpen(player, descriptor, origin,
-                task -> scheduler.executeAt(blockLocation, task),
+        beginOpen(player, descriptor, () -> origin.clone(),
+                (task, retired) -> scheduler.executeAt(blockLocation, task),
                 () -> resolver.resolve(blockLocation.getBlock()));
     }
 
     public void openEntity(Player player, Entity entity, ContainerDescriptor descriptor) {
-        Location origin = entity.getLocation().clone();
-        beginOpen(player, descriptor, origin,
-                task -> scheduler.executeFor(entity, task, () -> { }),
+        beginOpen(player, descriptor, () -> entity.getLocation().clone(),
+                (task, retired) -> scheduler.executeFor(entity, task, retired),
                 () -> resolver.resolve(entity));
     }
 
-    private void beginOpen(Player player, ContainerDescriptor descriptor, Location origin,
-                           ContainerDispatcher owner, Supplier<ContainerResolution> liveResolver) {
+    private void beginOpen(Player player, ContainerDescriptor descriptor, Supplier<Location> originSupplier,
+                           ContainerTaskDispatcher owner, Supplier<ContainerResolution> liveResolver) {
         UUID playerId = player.getUniqueId();
         OpenAttemptId attempt = OpenAttemptId.create();
         attempts.put(playerId, attempt);
@@ -91,50 +92,60 @@ public final class PersonalLootService {
                 .map(state -> CompletableFuture.completedFuture(
                         new EstablishedInstance(state.latestRecord(), false)))
                 .orElseGet(() -> firstOpen.establish(key,
-                        ignored -> generateOnOwner(descriptor, playerId, luck, origin, owner, liveResolver)));
+                        ignored -> generateOnOwner(descriptor, playerId, luck,
+                                originSupplier, owner, liveResolver)));
         established.whenComplete((result, failure) -> {
             if (failure != null) {
                 Throwable cause = unwrap(failure);
-                fail(player, attempt, cause instanceof LootGenerationCancelledException
-                        ? "Loot generation was cancelled by another plugin."
-                        : "Personal loot could not be loaded safely.",
-                        cause instanceof LootGenerationCancelledException ? null : cause);
+                boolean cancelled = cause instanceof LootGenerationCancelledException;
+                boolean unavailable = cause instanceof ContainerUnavailableException;
+                fail(player, attempt, cancelled
+                                ? "Loot generation was cancelled by another plugin."
+                                : unavailable ? "The container became unavailable while loading."
+                                : "Personal loot could not be loaded safely.",
+                        cancelled || unavailable ? null : cause);
                 return;
             }
-            owner.execute(() -> {
-                ContainerResolution live = liveResolver.get();
-                if (!(live instanceof ContainerResolution.Managed managed)
-                        || !sameIdentity(descriptor, managed.descriptor())) {
-                    fail(player, attempt, "The container changed while loading.", null);
-                    return;
+            Runnable revalidate = () -> {
+                try {
+                    ContainerResolution live = liveResolver.get();
+                    if (!(live instanceof ContainerResolution.Managed managed)
+                            || !sameIdentity(descriptor, managed.descriptor())) {
+                        fail(player, attempt, "The container changed while loading.", null);
+                        return;
+                    }
+                    LootInstanceState state = cache.establish(result.record());
+                    scheduler.executeFor(player,
+                            () -> openIfCurrent(player, attempt, descriptor, state, result.created()),
+                            () -> attempts.remove(playerId, attempt));
+                } catch (Throwable revalidationFailure) {
+                    fail(player, attempt, "The container could not be revalidated safely.",
+                            revalidationFailure);
                 }
-                LootInstanceState state = cache.establish(result.record());
-                scheduler.executeFor(player,
-                        () -> openIfCurrent(player, attempt, descriptor, state, result.created()),
-                        () -> attempts.remove(playerId, attempt));
-            });
+            };
+            try {
+                owner.execute(revalidate, () -> ownerRetired(player, attempt));
+            } catch (Throwable dispatchFailure) {
+                fail(player, attempt, "The container could not be scheduled safely.", dispatchFailure);
+            }
         });
     }
 
     private CompletableFuture<LootInstanceRecord> generateOnOwner(
-            ContainerDescriptor expected, UUID playerId, float luck, Location origin,
-            ContainerDispatcher owner, Supplier<ContainerResolution> liveResolver
+            ContainerDescriptor expected, UUID playerId, float luck, Supplier<Location> originSupplier,
+            ContainerTaskDispatcher owner, Supplier<ContainerResolution> liveResolver
     ) {
-        CompletableFuture<LootInstanceRecord> generated = new CompletableFuture<>();
-        owner.execute(() -> {
-            try {
-                ContainerResolution live = liveResolver.get();
-                if (!(live instanceof ContainerResolution.Managed managed)
-                        || !sameIdentity(expected, managed.descriptor())) {
-                    throw new IllegalStateException("container changed before loot generation");
-                }
-                generated.complete(generator.generate(managed.descriptor(), origin, playerId, luck,
-                        ThreadLocalRandom.current().nextLong()));
-            } catch (Throwable failure) {
-                generated.completeExceptionally(failure);
+        return OwnerTaskFuture.supply(owner, () -> {
+            ContainerResolution live = liveResolver.get();
+            if (!(live instanceof ContainerResolution.Managed managed)
+                    || !sameIdentity(expected, managed.descriptor())) {
+                throw new ContainerUnavailableException("container changed before loot generation");
             }
-        });
-        return generated;
+            // Entity locations are captured here, after revalidation, on the entity's owner.
+            Location liveOrigin = Objects.requireNonNull(originSupplier.get(), "origin supplier returned null");
+            return generator.generate(managed.descriptor(), liveOrigin, playerId, luck,
+                    ThreadLocalRandom.current().nextLong());
+        }, () -> new ContainerUnavailableException("container retired before loot generation"));
     }
 
     private void openIfCurrent(Player player, OpenAttemptId attempt, ContainerDescriptor descriptor,
@@ -170,6 +181,15 @@ public final class PersonalLootService {
         }
     }
 
+    private void ownerRetired(Player player, OpenAttemptId attempt) {
+        if (!attempts.remove(player.getUniqueId(), attempt)) {
+            return;
+        }
+        scheduler.executeFor(player,
+                () -> player.sendMessage(Component.text("[OpenLootr] The container became unavailable while loading.")),
+                () -> { });
+    }
+
     private static Component title(ContainerDescriptor descriptor) {
         return Component.text(switch (descriptor.kind()) {
             case BARREL -> "Personal Barrel";
@@ -192,10 +212,5 @@ public final class PersonalLootService {
             current = current.getCause();
         }
         return current;
-    }
-
-    @FunctionalInterface
-    private interface ContainerDispatcher {
-        void execute(Runnable task);
     }
 }

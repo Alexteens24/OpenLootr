@@ -31,8 +31,15 @@ public final class PaperContainerBehavior implements SessionLifecycleBehavior {
 
     @Override
     public void opened(Player player, ContainerDescriptor descriptor, boolean created) {
-        player.incrementStatistic(descriptor.kind() == ContainerKind.BARREL
-                ? Statistic.OPEN_BARREL : Statistic.CHEST_OPENED);
+        Statistic openStatistic = switch (descriptor.kind()) {
+            case CHEST, DOUBLE_CHEST -> Statistic.CHEST_OPENED;
+            case BARREL -> Statistic.OPEN_BARREL;
+            // Vanilla storage-minecart statistic behavior remains a live Phase-10 evidence gate.
+            case STORAGE_MINECART -> null;
+        };
+        if (openStatistic != null) {
+            player.incrementStatistic(openStatistic);
+        }
         if (created) {
             descriptor.lootSources().forEach(source -> parity.triggerGeneratedLoot(player, source.lootTable()));
         }

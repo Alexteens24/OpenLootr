@@ -32,7 +32,28 @@ public final class PaperSchedulerFacade implements SchedulerFacade {
 
     @Override
     public void executeFor(Entity entity, Runnable task, Runnable retired) {
-        entity.getScheduler().execute(plugin, guarded(task), guarded(retired), 1L);
+        Objects.requireNonNull(task, "task");
+        Objects.requireNonNull(retired, "retired");
+        AtomicBoolean terminalRetired = new AtomicBoolean();
+        Runnable retireOnce = () -> {
+            if (terminalRetired.compareAndSet(false, true)) {
+                retired.run();
+            }
+        };
+        if (!accepting.get()) {
+            retireOnce.run();
+            return;
+        }
+        boolean scheduled = entity.getScheduler().execute(plugin, () -> {
+            if (accepting.get()) {
+                task.run();
+            } else {
+                retireOnce.run();
+            }
+        }, retireOnce, 1L);
+        if (!scheduled) {
+            retireOnce.run();
+        }
     }
 
     @Override

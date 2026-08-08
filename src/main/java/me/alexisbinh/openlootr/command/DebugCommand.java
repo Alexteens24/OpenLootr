@@ -19,7 +19,8 @@ public final class DebugCommand {
         source.getSender().sendMessage(Component.text("[OpenLootr] Runtime diagnostics"));
         source.getSender().sendMessage(Component.text("cache=" + cache.size()
                 + ", sessions=" + plugin.sessions().size()
-                + ", inflight=" + plugin.lootService().inFlightCount()));
+                + ", inflight=" + plugin.lootService().inFlightCount()
+                + ", attempts=" + plugin.lootService().pendingAttemptCount()));
         source.getSender().sendMessage(Component.text("dirty=" + plugin.saves().pendingCount()
                 + ", writing=" + plugin.saves().writingCount()
                 + ", acceptingMutations=" + plugin.saves().acceptingMutations()));

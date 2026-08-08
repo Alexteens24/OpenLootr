@@ -12,6 +12,7 @@ with release version `0.7.0-SNAPSHOT`.
 - immutable block/entity locators and ordered multi-source descriptors;
 - strict PDC v2 double-chest adoption and SplitMix64 per-source seeds;
 - storage minecart resolution, interaction and physical protection;
+- terminal entity-retirement paths and owner-time minecart origin capture;
 - shared block/entity first-open service and explicit scheduler revalidation;
 - reference-counted lids, statistics and version-isolated vanilla parity bridge;
 - multi-source `LootGenerateEvent` cancellation semantics and documented context
@@ -24,6 +25,7 @@ with release version `0.7.0-SNAPSHOT`.
 - storage minecart unload versus permanent removal on Paper and Folia;
 - exact lid sound/game-event behavior (no manual duplicate emission is added);
 - piglin and advancement parity on the pinned server build;
+- exact vanilla storage-minecart statistic behavior;
 - datapack and third-party `LootGenerateEvent` compatibility fixtures;
 - forced process kill at each persistence boundary;
 - Paper/Folia stress and profiler runs.
