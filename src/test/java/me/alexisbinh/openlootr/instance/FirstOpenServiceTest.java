@@ -33,19 +33,20 @@ class FirstOpenServiceTest {
         CompletableFuture<LootInstanceRecord> generationGate = new CompletableFuture<>();
         AtomicInteger generations = new AtomicInteger();
 
-        CompletableFuture<LootInstanceRecord> first = service.establish(key, ignored -> {
+        CompletableFuture<EstablishedInstance> first = service.establish(key, ignored -> {
             generations.incrementAndGet();
             return generationGate;
         });
-        CompletableFuture<LootInstanceRecord> second = service.establish(key, ignored -> {
+        CompletableFuture<EstablishedInstance> second = service.establish(key, ignored -> {
             generations.incrementAndGet();
             return generationGate;
         });
 
         LootInstanceRecord generated = record(key);
         generationGate.complete(generated);
-        assertSame(generated, first.join());
-        assertSame(generated, second.join());
+        assertSame(generated, first.join().record());
+        assertSame(generated, second.join().record());
+        assertEquals(true, first.join().created());
         assertEquals(1, generations.get());
         assertEquals(1, storage.inserts.get());
     }
@@ -58,12 +59,13 @@ class FirstOpenServiceTest {
         InstanceKey key = new InstanceKey(UUID.randomUUID(), UUID.randomUUID());
         AtomicInteger generations = new AtomicInteger();
 
-        LootInstanceRecord result = service.establish(key, ignored -> {
+        EstablishedInstance result = service.establish(key, ignored -> {
             generations.incrementAndGet();
             return CompletableFuture.completedFuture(record(key));
         }).join();
 
-        assertEquals(key, result.key());
+        assertEquals(key, result.record().key());
+        assertEquals(false, result.created(), "lost acknowledgements cannot safely claim a new creation");
         assertEquals(1, generations.get());
         assertEquals(1, storage.rows.size());
     }
