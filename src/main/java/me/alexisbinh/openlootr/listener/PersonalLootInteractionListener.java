@@ -3,7 +3,7 @@ package me.alexisbinh.openlootr.listener;
 import me.alexisbinh.openlootr.container.ContainerResolution;
 import me.alexisbinh.openlootr.paper.service.PersonalLootService;
 import me.alexisbinh.openlootr.paper.container.ContainerResolver;
-import net.kyori.adventure.text.Component;
+import me.alexisbinh.openlootr.paper.feedback.PlayerFeedback;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -19,10 +19,13 @@ import java.util.Objects;
 public final class PersonalLootInteractionListener implements Listener {
     private final ContainerResolver resolver;
     private final PersonalLootService service;
+    private final PlayerFeedback feedback;
 
-    public PersonalLootInteractionListener(ContainerResolver resolver, PersonalLootService service) {
+    public PersonalLootInteractionListener(ContainerResolver resolver, PersonalLootService service,
+                                           PlayerFeedback feedback) {
         this.resolver = Objects.requireNonNull(resolver, "resolver");
         this.service = Objects.requireNonNull(service, "service");
+        this.feedback = Objects.requireNonNull(feedback, "feedback");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -72,9 +75,7 @@ public final class PersonalLootInteractionListener implements Listener {
         return resolution;
     }
 
-    private static void sendUnavailable(Player player, ContainerResolution resolution) {
-        String reason = resolution instanceof ContainerResolution.Broken broken
-                ? broken.reason() : "identity adoption failed";
-        player.sendMessage(Component.text("[OpenLootr] Container unavailable: " + reason));
+    private void sendUnavailable(Player player, ContainerResolution resolution) {
+        feedback.unavailable(player);
     }
 }

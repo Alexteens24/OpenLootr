@@ -13,6 +13,7 @@ import me.alexisbinh.openlootr.instance.InstanceKey;
 import me.alexisbinh.openlootr.instance.LootInstanceRecord;
 import me.alexisbinh.openlootr.instance.LootInstanceState;
 import me.alexisbinh.openlootr.paper.container.ContainerResolver;
+import me.alexisbinh.openlootr.paper.feedback.PlayerFeedback;
 import me.alexisbinh.openlootr.paper.session.SessionManager;
 import me.alexisbinh.openlootr.scheduler.SchedulerFacade;
 import me.alexisbinh.openlootr.session.OpenAttemptId;
@@ -41,6 +42,7 @@ public final class PersonalLootService {
     private final InstanceCache cache;
     private final SessionManager sessions;
     private final SchedulerFacade scheduler;
+    private final PlayerFeedback feedback;
     private final Logger logger;
     private final Map<UUID, OpenAttemptId> attempts = new ConcurrentHashMap<>();
     private volatile boolean accepting = true;
@@ -48,7 +50,7 @@ public final class PersonalLootService {
     public PersonalLootService(ContainerResolver resolver, FirstOpenService firstOpen,
                                PaperLootGenerator generator, ContainerCodec codec,
                                InstanceCache cache, SessionManager sessions,
-                               SchedulerFacade scheduler, Logger logger) {
+                               SchedulerFacade scheduler, PlayerFeedback feedback, Logger logger) {
         this.resolver = Objects.requireNonNull(resolver, "resolver");
         this.firstOpen = Objects.requireNonNull(firstOpen, "firstOpen");
         this.generator = Objects.requireNonNull(generator, "generator");
@@ -56,6 +58,7 @@ public final class PersonalLootService {
         this.cache = Objects.requireNonNull(cache, "cache");
         this.sessions = Objects.requireNonNull(sessions, "sessions");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+        this.feedback = Objects.requireNonNull(feedback, "feedback");
         this.logger = Objects.requireNonNull(logger, "logger");
     }
 
@@ -85,6 +88,7 @@ public final class PersonalLootService {
         UUID playerId = player.getUniqueId();
         OpenAttemptId attempt = OpenAttemptId.create();
         attempts.put(playerId, attempt);
+        PlayerFeedback.LoadingToken loading = feedback.beginLoading(player);
         InstanceKey key = new InstanceKey(descriptor.containerId().orElseThrow(), playerId);
         var luckAttribute = player.getAttribute(Attribute.LUCK);
         float luck = luckAttribute == null ? 0.0F : (float) luckAttribute.getValue();
@@ -99,10 +103,7 @@ public final class PersonalLootService {
                 Throwable cause = unwrap(failure);
                 boolean cancelled = cause instanceof LootGenerationCancelledException;
                 boolean unavailable = cause instanceof ContainerUnavailableException;
-                fail(player, attempt, cancelled
-                                ? "Loot generation was cancelled by another plugin."
-                                : unavailable ? "The container became unavailable while loading."
-                                : "Personal loot could not be loaded safely.",
+                fail(player, attempt, loading, cancelled,
                         cancelled || unavailable ? null : cause);
                 return;
             }
@@ -111,22 +112,24 @@ public final class PersonalLootService {
                     ContainerResolution live = liveResolver.get();
                     if (!(live instanceof ContainerResolution.Managed managed)
                             || !sameIdentity(descriptor, managed.descriptor())) {
-                        fail(player, attempt, "The container changed while loading.", null);
+                        fail(player, attempt, loading, false, null);
                         return;
                     }
                     LootInstanceState state = cache.establish(result.record());
                     scheduler.executeFor(player,
-                            () -> openIfCurrent(player, attempt, descriptor, state, result.created()),
-                            () -> attempts.remove(playerId, attempt));
+                            () -> openIfCurrent(player, attempt, loading, descriptor, state, result.created()),
+                            () -> {
+                                attempts.remove(playerId, attempt);
+                                feedback.discard(loading);
+                            });
                 } catch (Throwable revalidationFailure) {
-                    fail(player, attempt, "The container could not be revalidated safely.",
-                            revalidationFailure);
+                    fail(player, attempt, loading, false, revalidationFailure);
                 }
             };
             try {
-                owner.execute(revalidate, () -> ownerRetired(player, attempt));
+                owner.execute(revalidate, () -> ownerRetired(player, attempt, loading));
             } catch (Throwable dispatchFailure) {
-                fail(player, attempt, "The container could not be scheduled safely.", dispatchFailure);
+                fail(player, attempt, loading, false, dispatchFailure);
             }
         });
     }
@@ -148,9 +151,10 @@ public final class PersonalLootService {
         }, () -> new ContainerUnavailableException("container retired before loot generation"));
     }
 
-    private void openIfCurrent(Player player, OpenAttemptId attempt, ContainerDescriptor descriptor,
-                               LootInstanceState state, boolean created) {
+    private void openIfCurrent(Player player, OpenAttemptId attempt, PlayerFeedback.LoadingToken loading,
+                               ContainerDescriptor descriptor, LootInstanceState state, boolean created) {
         if (!player.isOnline() || !attempt.equals(attempts.get(player.getUniqueId()))) {
+            feedback.discard(loading);
             return;
         }
         try {
@@ -160,41 +164,58 @@ public final class PersonalLootService {
             }
             var contents = codec.decode(record.inventoryData(), descriptor.logicalSize(), record.codecVersion());
             if (!attempts.remove(player.getUniqueId(), attempt)) {
+                feedback.discard(loading);
                 return;
             }
-            sessions.open(player, attempt, state, contents, title(descriptor), descriptor, created);
+            if (sessions.open(player, attempt, state, contents, title(descriptor), descriptor, created)) {
+                feedback.opened(player, loading, created);
+            } else {
+                feedback.unavailable(player, loading);
+            }
         } catch (CodecException failure) {
             state.corrupt(failure.getMessage());
             logger.error("Refusing to open undecodable personal inventory {}", state.key(), failure);
-            player.sendMessage(Component.text("[OpenLootr] Stored inventory data is invalid; nothing was overwritten."));
+            attempts.remove(player.getUniqueId(), attempt);
+            feedback.unavailable(player, loading);
         }
     }
 
-    private void fail(Player player, OpenAttemptId attempt, String message, Throwable failure) {
+    private void fail(Player player, OpenAttemptId attempt, PlayerFeedback.LoadingToken loading,
+                      boolean generationCancelled, Throwable failure) {
         scheduler.executeFor(player, () -> {
             if (attempts.remove(player.getUniqueId(), attempt)) {
-                player.sendMessage(Component.text("[OpenLootr] " + message));
+                if (generationCancelled) {
+                    feedback.generationCancelled(player, loading);
+                } else {
+                    feedback.unavailable(player, loading);
+                }
+            } else {
+                feedback.discard(loading);
             }
-        }, () -> attempts.remove(player.getUniqueId(), attempt));
+        }, () -> {
+            attempts.remove(player.getUniqueId(), attempt);
+            feedback.discard(loading);
+        });
         if (failure != null) {
             logger.error("Open attempt {} failed for {}", attempt.value(), player.getUniqueId(), failure);
         }
     }
 
-    private void ownerRetired(Player player, OpenAttemptId attempt) {
+    private void ownerRetired(Player player, OpenAttemptId attempt, PlayerFeedback.LoadingToken loading) {
         if (!attempts.remove(player.getUniqueId(), attempt)) {
+            feedback.discard(loading);
             return;
         }
         scheduler.executeFor(player,
-                () -> player.sendMessage(Component.text("[OpenLootr] The container became unavailable while loading.")),
-                () -> { });
+                () -> feedback.unavailable(player, loading),
+                () -> feedback.discard(loading));
     }
 
     private static Component title(ContainerDescriptor descriptor) {
         return Component.text(switch (descriptor.kind()) {
-            case BARREL -> "Personal Barrel";
-            case STORAGE_MINECART -> "Personal Minecart";
-            default -> "Personal Chest";
+            case BARREL -> "Loot Barrel";
+            case STORAGE_MINECART -> "Loot Minecart";
+            default -> "Loot Chest";
         });
     }
 

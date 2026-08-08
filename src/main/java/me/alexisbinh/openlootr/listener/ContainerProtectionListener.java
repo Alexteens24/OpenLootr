@@ -2,6 +2,7 @@ package me.alexisbinh.openlootr.listener;
 
 import me.alexisbinh.openlootr.container.ContainerResolution;
 import me.alexisbinh.openlootr.paper.container.ContainerResolver;
+import me.alexisbinh.openlootr.paper.feedback.PlayerFeedback;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
 import org.bukkit.event.EventHandler;
@@ -16,6 +17,7 @@ import org.bukkit.event.vehicle.VehicleDestroyEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
 import me.alexisbinh.openlootr.paper.session.SessionManager;
 
 import java.util.Objects;
@@ -23,16 +25,20 @@ import java.util.Objects;
 public final class ContainerProtectionListener implements Listener {
     private final ContainerResolver resolver;
     private final SessionManager sessions;
+    private final PlayerFeedback feedback;
 
-    public ContainerProtectionListener(ContainerResolver resolver, SessionManager sessions) {
+    public ContainerProtectionListener(ContainerResolver resolver, SessionManager sessions,
+                                       PlayerFeedback feedback) {
         this.resolver = Objects.requireNonNull(resolver, "resolver");
         this.sessions = Objects.requireNonNull(sessions, "sessions");
+        this.feedback = Objects.requireNonNull(feedback, "feedback");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
         if (protectedContainer(event.getBlock())) {
             event.setCancelled(true);
+            feedback.cannotBreak(event.getPlayer());
         }
     }
 
@@ -43,6 +49,7 @@ public final class ContainerProtectionListener implements Listener {
                 && managed.descriptor().kind() == me.alexisbinh.openlootr.container.ContainerKind.DOUBLE_CHEST)
                 || resolution instanceof ContainerResolution.Broken) {
             event.setCancelled(true);
+            feedback.cannotMerge(event.getPlayer());
         }
     }
 
@@ -67,6 +74,9 @@ public final class ContainerProtectionListener implements Listener {
     public void onVehicleDestroy(VehicleDestroyEvent event) {
         if (protectedEntity(event.getVehicle())) {
             event.setCancelled(true);
+            if (event.getAttacker() instanceof Player player) {
+                feedback.cannotBreak(player);
+            }
         }
     }
 
@@ -77,8 +87,7 @@ public final class ContainerProtectionListener implements Listener {
         }
         ContainerResolution resolution = resolver.resolve(event.getEntity());
         if (resolution instanceof ContainerResolution.Managed managed) {
-            sessions.closeContainer(managed.descriptor().containerId().orElseThrow(),
-                    "The physical loot container disappeared.");
+            sessions.closeContainer(managed.descriptor().containerId().orElseThrow());
         }
     }
 

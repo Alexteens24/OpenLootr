@@ -18,6 +18,8 @@ import me.alexisbinh.openlootr.paper.nms.VanillaParityBridge;
 import me.alexisbinh.openlootr.paper.nms.v1_21_11.Paper1211VanillaParityBridge;
 import me.alexisbinh.openlootr.paper.dialog.InspectorPresenter;
 import me.alexisbinh.openlootr.paper.dialog.PaperDialogInspector;
+import me.alexisbinh.openlootr.paper.feedback.PlayerFeedback;
+import me.alexisbinh.openlootr.paper.feedback.PlayerFeedbackService;
 import me.alexisbinh.openlootr.scheduler.PaperSchedulerFacade;
 import me.alexisbinh.openlootr.scheduler.SchedulerFacade;
 import me.alexisbinh.openlootr.storage.DbExecutor;
@@ -49,6 +51,7 @@ public final class OpenLootrPlugin extends JavaPlugin {
     private PersonalLootService lootService;
     private VanillaParityBridge parityBridge;
     private InspectorPresenter inspectorPresenter;
+    private PlayerFeedback feedback;
 
     @Override
     public void onEnable() {
@@ -139,20 +142,21 @@ public final class OpenLootrPlugin extends JavaPlugin {
         ContainerCodec codec = new ContainerCodec();
         cache = new InstanceCache();
         containerResolver = new PaperContainerResolver(this);
+        feedback = new PlayerFeedbackService(this, scheduler);
         GenerationEventTracker generationEvents = new GenerationEventTracker();
         sessions = new SessionManager(new PaperMenuFactory(this), codec, scheduler, cache,
-                new PaperContainerBehavior(scheduler, parityBridge));
+                new PaperContainerBehavior(scheduler, parityBridge), feedback);
         saves = new SaveCoordinator(storage, dbExecutor, scheduler, getSLF4JLogger(),
                 sessions::degrade, cache::evictIfCleanAndClosed);
         sessions.attachSaveCoordinator(saves);
         lootService = new PersonalLootService(containerResolver, new FirstOpenService(storage, dbExecutor),
                 new PaperLootGenerator(codec, generationEvents), codec, cache, sessions,
-                scheduler, getSLF4JLogger());
-        interactions = new PersonalLootInteractionListener(containerResolver, lootService);
+                scheduler, feedback, getSLF4JLogger());
+        interactions = new PersonalLootInteractionListener(containerResolver, lootService, feedback);
 
         var plugins = getServer().getPluginManager();
         plugins.registerEvents(generationEvents, this);
-        plugins.registerEvents(new ContainerProtectionListener(containerResolver, sessions), this);
+        plugins.registerEvents(new ContainerProtectionListener(containerResolver, sessions, feedback), this);
         plugins.registerEvents(sessions, this);
         plugins.registerEvents(interactions, this);
         scheduleCacheSweep();
@@ -200,4 +204,6 @@ public final class OpenLootrPlugin extends JavaPlugin {
     public VanillaParityBridge parityBridge() { return parityBridge; }
 
     public InspectorPresenter inspectorPresenter() { return inspectorPresenter; }
+
+    public PlayerFeedback feedback() { return feedback; }
 }

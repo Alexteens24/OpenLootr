@@ -8,6 +8,7 @@ import me.alexisbinh.openlootr.instance.PersistenceHealth;
 import me.alexisbinh.openlootr.instance.SaveCoordinator;
 import me.alexisbinh.openlootr.paper.menu.MenuFactory;
 import me.alexisbinh.openlootr.paper.behavior.SessionLifecycleBehavior;
+import me.alexisbinh.openlootr.paper.feedback.PlayerFeedback;
 import me.alexisbinh.openlootr.scheduler.SchedulerFacade;
 import me.alexisbinh.openlootr.session.OpenAttemptId;
 import net.kyori.adventure.text.Component;
@@ -36,22 +37,24 @@ public final class SessionManager implements Listener {
     private final SchedulerFacade scheduler;
     private final InstanceCache cache;
     private final SessionLifecycleBehavior behavior;
+    private final PlayerFeedback feedback;
     private final Map<UUID, LootSession> sessions = new ConcurrentHashMap<>();
     private volatile SaveCoordinator saves;
 
     public SessionManager(MenuFactory menuFactory, ContainerCodec codec,
                           SchedulerFacade scheduler, InstanceCache cache) {
-        this(menuFactory, codec, scheduler, cache, SessionLifecycleBehavior.NOOP);
+        this(menuFactory, codec, scheduler, cache, SessionLifecycleBehavior.NOOP, PlayerFeedback.NOOP);
     }
 
     public SessionManager(MenuFactory menuFactory, ContainerCodec codec,
                           SchedulerFacade scheduler, InstanceCache cache,
-                          SessionLifecycleBehavior behavior) {
+                          SessionLifecycleBehavior behavior, PlayerFeedback feedback) {
         this.menuFactory = Objects.requireNonNull(menuFactory, "menuFactory");
         this.codec = Objects.requireNonNull(codec, "codec");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.cache = Objects.requireNonNull(cache, "cache");
         this.behavior = Objects.requireNonNull(behavior, "behavior");
+        this.feedback = Objects.requireNonNull(feedback, "feedback");
     }
 
     public void attachSaveCoordinator(SaveCoordinator saves) {
@@ -61,12 +64,11 @@ public final class SessionManager implements Listener {
         this.saves = Objects.requireNonNull(saves, "saves");
     }
 
-    public void open(Player player, OpenAttemptId attempt, LootInstanceState state,
-                     org.bukkit.inventory.ItemStack[] contents, Component title,
-                     ContainerDescriptor descriptor, boolean created) {
+    public boolean open(Player player, OpenAttemptId attempt, LootInstanceState state,
+                        org.bukkit.inventory.ItemStack[] contents, Component title,
+                        ContainerDescriptor descriptor, boolean created) {
         if (state.degraded()) {
-            player.sendMessage(Component.text("[OpenLootr] This personal inventory is unavailable because saving failed."));
-            return;
+            return false;
         }
         LootSession old = sessions.remove(player.getUniqueId());
         if (old != null) {
@@ -79,6 +81,7 @@ public final class SessionManager implements Listener {
                 view.getTopInventory(), state, descriptor, created);
         sessions.put(player.getUniqueId(), session);
         behavior.opened(player, descriptor, created);
+        return true;
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -188,9 +191,7 @@ public final class SessionManager implements Listener {
                     sessions.remove(session.playerId(), session);
                     closed(session);
                     player.closeInventory();
-                    player.sendMessage(Component.text(target == PersistenceHealth.QUARANTINED
-                            ? "[OpenLootr] Inventory quarantined after a persistence conflict."
-                            : "[OpenLootr] Inventory closed while persistence recovers."));
+                    feedback.unavailable(player);
                 } else {
                     state.finishDegrading(target);
                 }
@@ -256,7 +257,7 @@ public final class SessionManager implements Listener {
 
     public int size() { return sessions.size(); }
 
-    public void closeContainer(UUID containerId, String reason) {
+    public void closeContainer(UUID containerId) {
         sessions.values().stream()
                 .filter(session -> session.instance().key().containerId().equals(containerId))
                 .forEach(session -> {
@@ -272,7 +273,7 @@ public final class SessionManager implements Listener {
                             snapshot(session, true);
                             closed(session);
                             player.closeInventory();
-                            player.sendMessage(Component.text("[OpenLootr] " + reason));
+                            feedback.containerDisappeared(player);
                         }
                     }, () -> {
                         if (sessions.remove(session.playerId(), session)) {
