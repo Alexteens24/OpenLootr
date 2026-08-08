@@ -26,4 +26,19 @@ class ArchitectureBoundaryTest {
             }
         }
     }
+
+    @Test
+    void minecraftInternalsAreIsolatedToVersionedBridge() throws IOException {
+        Path sourceRoot = Path.of("src/main/java/me/alexisbinh/openlootr");
+        try (var files = Files.walk(sourceRoot)) {
+            for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
+                String source = Files.readString(file);
+                if (source.contains("import net.minecraft")) {
+                    Path relative = sourceRoot.relativize(file);
+                    assertFalse(!relative.toString().startsWith("paper/nms/v1_21_11"),
+                            () -> relative + " imports NMS outside the isolated bridge");
+                }
+            }
+        }
+    }
 }

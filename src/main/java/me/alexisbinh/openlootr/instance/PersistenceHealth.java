@@ -4,5 +4,6 @@ public enum PersistenceHealth {
     HEALTHY,
     DEGRADING,
     DEGRADED,
-    QUARANTINED
+    QUARANTINED,
+    CORRUPT
 }

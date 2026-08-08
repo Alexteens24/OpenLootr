@@ -14,3 +14,9 @@ permissions:
   openlootr.command.inspect:
     description: Inspect a target loot container and its persisted state
     default: op
+  openlootr.command.debug:
+    description: View read-only OpenLootr runtime diagnostics
+    default: op
+  openlootr.command.repair:
+    description: Safely repair one narrowly-defined partial double chest identity
+    default: op

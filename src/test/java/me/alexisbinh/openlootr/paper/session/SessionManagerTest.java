@@ -1,6 +1,12 @@
 package me.alexisbinh.openlootr.paper.session;
 
 import me.alexisbinh.openlootr.codec.ContainerCodec;
+import me.alexisbinh.openlootr.container.BlockLocator;
+import me.alexisbinh.openlootr.container.BlockPosition;
+import me.alexisbinh.openlootr.container.ContainerDescriptor;
+import me.alexisbinh.openlootr.container.ContainerKind;
+import me.alexisbinh.openlootr.container.LootSourceDescriptor;
+import me.alexisbinh.openlootr.container.ResourceKey;
 import me.alexisbinh.openlootr.instance.InstanceCache;
 import me.alexisbinh.openlootr.instance.InstanceKey;
 import me.alexisbinh.openlootr.instance.LootInstanceRecord;
@@ -23,6 +29,8 @@ import org.mockbukkit.mockbukkit.ServerMock;
 
 import java.time.Duration;
 import java.util.UUID;
+import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -53,7 +61,13 @@ class SessionManagerTest {
             return viewer.openInventory(inventory);
         }, codec, new ImmediateScheduler(), new InstanceCache());
 
-        manager.open(player, OpenAttemptId.create(), state, empty, Component.text("Personal Chest"));
+        var position = new BlockPosition(0, 64, 0);
+        var descriptor = new ContainerDescriptor(Optional.of(state.key().containerId()),
+                BlockLocator.single(server.getWorld("world").getUID(), position), ContainerKind.CHEST, 27,
+                List.of(new LootSourceDescriptor(new ResourceKey("minecraft", "chests/simple_dungeon"),
+                        0L, 0, 27)), 1);
+        manager.open(player, OpenAttemptId.create(), state, empty, Component.text("Personal Chest"),
+                descriptor, false);
         player.getOpenInventory().getTopInventory().setItem(0, new ItemStack(Material.DIAMOND));
         assertTrue(state.beginDegrading(PersistenceHealth.DEGRADED));
 
