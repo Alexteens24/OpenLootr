@@ -1,7 +1,6 @@
 plugins {
     java
     id("xyz.jpenilla.run-paper") version "3.0.2"
-    id("io.papermc.paperweight.userdev") version "2.0.0-beta.21"
 }
 
 group = "me.alexisbinh.openlootr"
@@ -21,7 +20,7 @@ val paperVersion = "1.21.11-R0.1-SNAPSHOT"
 val sqliteVersion = "3.53.2.1"
 
 dependencies {
-    paperweight.paperDevBundle(paperVersion)
+    compileOnly("io.papermc.paper:paper-api:$paperVersion")
     compileOnly("org.xerial:sqlite-jdbc:$sqliteVersion")
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
@@ -32,9 +31,6 @@ dependencies {
     testRuntimeOnly("com.mojang:datafixerupper:9.0.19")
     testRuntimeOnly("org.xerial:sqlite-jdbc:$sqliteVersion")
 }
-
-paperweight.reobfArtifactConfiguration =
-    io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
 
 val spike = sourceSets.create("spike") {
     compileClasspath += sourceSets.main.get().output + configurations.compileClasspath.get()
@@ -49,6 +45,15 @@ tasks.register<Jar>("spikeJar") {
     archiveBaseName.set("OpenLootrSpikes")
     archiveClassifier.set("dev")
     from(spike.output)
+}
+
+tasks.register<Copy>("ciArtifact") {
+    group = "build"
+    description = "Copies the single production JAR to a stable CI artifact name."
+    dependsOn(tasks.jar)
+    from(tasks.jar.flatMap { it.archiveFile })
+    into(layout.buildDirectory.dir("ci"))
+    rename { "OpenLootr.jar" }
 }
 
 tasks.withType<JavaCompile>().configureEach {

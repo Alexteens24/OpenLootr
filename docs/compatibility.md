@@ -1,5 +1,22 @@
 # Loot-generation compatibility
 
+## Runtime and NMS linkage
+
+The same production JAR supports exactly Paper `1.21.11`, `26.1.2`, and `26.2`.
+OpenLootr compiles against the oldest API (`1.21.11`) with Java 21 bytecode; a
+Paper 26.1+ server must itself run on Java 25.
+
+No production class imports Minecraft or CraftBukkit internals. Startup first
+checks the exact runtime allowlist, then `VanillaParityLinker` resolves the full
+generated-loot and piglin-anger surface through `MethodHandle`s. `1.21.11` and
+`26.1.2` share a layout. `26.2` has one separate layout for Mojang's advancement
+trigger package move. A missing class, field or exact descriptor disables the
+plugin before SQLite initialization and before any inventory can open.
+
+CI builds one `OpenLootr.jar` and passes that same uploaded artifact to all three
+Paper runtime jobs. These jobs are boot/linkage/SQLite/clean-shutdown smoke tests,
+not substitutes for real-player gameplay fixtures.
+
 OpenLootr 0.7 targets the public Paper loot pipeline:
 
 - vanilla loot tables: supported;

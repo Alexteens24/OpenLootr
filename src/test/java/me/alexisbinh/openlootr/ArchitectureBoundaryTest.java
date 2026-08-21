@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ArchitectureBoundaryTest {
     @Test
@@ -28,17 +29,29 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    void minecraftInternalsAreIsolatedToVersionedBridge() throws IOException {
+    void minecraftInternalsAreIsolatedToLinkageLayout() throws IOException {
         Path sourceRoot = Path.of("src/main/java/me/alexisbinh/openlootr");
         try (var files = Files.walk(sourceRoot)) {
             for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
                 String source = Files.readString(file);
-                if (source.contains("import net.minecraft")) {
+                assertFalse(source.contains("import net.minecraft"),
+                        () -> sourceRoot.relativize(file) + " directly imports NMS");
+                if (source.contains("\"net.minecraft.")
+                        || source.contains("\"org.bukkit.craftbukkit.")) {
                     Path relative = sourceRoot.relativize(file);
-                    assertFalse(!relative.toString().startsWith("paper/nms/v1_21_11"),
-                            () -> relative + " imports NMS outside the isolated bridge");
+                    assertTrue(relative.toString().equals("paper/nms/LinkageLayout.java"),
+                            () -> relative + " names internals outside the linkage layout");
                 }
             }
+        }
+    }
+
+    @Test
+    void nmsCompatibilityHasNoVersionedSourceDirectories() throws IOException {
+        Path nmsRoot = Path.of("src/main/java/me/alexisbinh/openlootr/paper/nms");
+        try (var entries = Files.list(nmsRoot)) {
+            assertFalse(entries.anyMatch(Files::isDirectory),
+                    "NMS compatibility must remain one flat source island");
         }
     }
 }

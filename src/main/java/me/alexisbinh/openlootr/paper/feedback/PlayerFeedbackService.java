@@ -134,9 +134,11 @@ public final class PlayerFeedbackService implements PlayerFeedback {
 
     private static Map<Message, Component> loadMessages(JavaPlugin plugin) {
         Objects.requireNonNull(plugin, "plugin");
-        plugin.saveResource("messages.yml", false);
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(
-                new File(plugin.getDataFolder(), "messages.yml"));
+        File messagesFile = new File(plugin.getDataFolder(), "messages.yml");
+        if (!messagesFile.isFile()) {
+            plugin.saveResource("messages.yml", false);
+        }
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(messagesFile);
         MiniMessage miniMessage = MiniMessage.miniMessage();
         Map<Message, Component> loaded = new EnumMap<>(Message.class);
         for (Message message : Message.values()) {
